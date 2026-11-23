@@ -98,6 +98,11 @@ export class GameClient {
     this.store.save(this.session.toSavedGame());
   }
 
+  /** Shows a brief message to the player. */
+  notify(message: string, seconds?: number): void {
+    this.hud.toast.show(message, seconds);
+  }
+
   private createViews(): Views {
     const { terrain, simulation, localPlayerId } = this.session;
     const heights = new HeightField(terrain);

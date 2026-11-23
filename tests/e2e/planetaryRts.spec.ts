@@ -43,6 +43,16 @@ test.describe('planetary RTS smoke', () => {
     await expect(page.locator('#selection-panel')).toContainText('Moving');
   });
 
+  test('opens the controls reference', async ({ page }) => {
+    await startFreshGame(page);
+    await page.keyboard.press('F1');
+    await expect(page.locator('#help')).toBeVisible();
+    await page.getByRole('button', { name: 'Close' }).click();
+    await expect(page.locator('#help')).toBeHidden();
+  });
+});
+
+test.describe('planetary RTS persistence', () => {
   test('restores the planet and forces after a reload', async ({ page }) => {
     await startFreshGame(page);
     await page.evaluate(() => window.dispatchEvent(new Event('beforeunload')));
@@ -53,11 +63,13 @@ test.describe('planetary RTS smoke', () => {
     await expect(page.locator('#selection-panel h3')).toHaveText(/\d+ units selected/);
   });
 
-  test('opens the controls reference', async ({ page }) => {
-    await startFreshGame(page);
-    await page.keyboard.press('F1');
-    await expect(page.locator('#help')).toBeVisible();
-    await page.getByRole('button', { name: 'Close' }).click();
-    await expect(page.locator('#help')).toBeHidden();
+  test('starts the planet afresh when the saved game cannot be restored', async ({ page }) => {
+    const unusable = { version: 1, scenario: 'skirmish', seed: SEED, mapSize: 256, localPlayerId: 1, world: null };
+    // Planted before the application starts, as a save left behind by an incompatible build would be.
+    await page.addInitScript((saved) => localStorage.setItem('victoryah.savedGame', saved), JSON.stringify(unusable));
+    await page.goto(`/?seed=${SEED}`);
+    await expect(page.locator('#planet-label')).toHaveText(`Planet ${SEED}`);
+    await expect(page.locator('#toast')).toContainText('could not be restored');
+    await expect(page.locator('#resources')).toContainText('400');
   });
 });

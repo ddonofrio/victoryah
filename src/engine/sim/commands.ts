@@ -152,7 +152,7 @@ export function orderRepair(world: World, unit: Entity, targetId: EntityId): Rej
 
 export function orderExtract(world: World, unit: Entity, depositId: number): RejectionReason | null {
   const deposit = world.deposit(depositId);
-  if (!deposit || deposit.kind !== 'energy') return 'invalid-target';
+  if (!deposit || deposit.kind !== 'energy' || !world.isDepositKnownTo(deposit, unit.owner)) return 'invalid-target';
   return assignOrder(unit, { type: 'extract', depositId });
 }
 
@@ -197,6 +197,13 @@ function buildRejection(
   if (!isFiniteNumber(x) || !isFiniteNumber(y)) return 'invalid-target';
   const def = world.def(typeId);
   const half = Math.floor((def.footprint ?? 1) / 2);
+  const explored = world.visibility(playerId);
+  // Unexplored ground is checked first so a rejection reveals nothing about what lies there.
+  for (let ty = Math.floor(y) - half; ty <= Math.floor(y) + half; ty++) {
+    for (let tx = Math.floor(x) - half; tx <= Math.floor(x) + half; tx++) {
+      if (!explored.isExplored(tx, ty)) return 'invalid-target';
+    }
+  }
   for (let ty = Math.floor(y) - half; ty <= Math.floor(y) + half; ty++) {
     for (let tx = Math.floor(x) - half; tx <= Math.floor(x) + half; tx++) {
       if (!world.isWalkable(tx, ty)) return 'blocked';

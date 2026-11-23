@@ -1,4 +1,5 @@
-import { findPath, smoothPath } from '../../world/pathfinding';
+import { nearestTileInRegion } from '../../world/connectivity';
+import { findPath, smoothPath, type TilePoint } from '../../world/pathfinding';
 import { clamp, distance } from '../geometry';
 import type { Entity } from '../types';
 import type { World } from '../world';
@@ -6,9 +7,16 @@ import type { World } from '../world';
 /** Minimum ticks between path requests while chasing a moving target. */
 const REPATH_INTERVAL = 20;
 
+/** How far around an unreachable destination to look for a tile the unit can actually reach. */
+const RETARGET_RADIUS = 48;
+/** Search budget for the rare case where no reachable tile lies within the retarget radius. */
+const FALLBACK_SEARCH_BUDGET = 2000;
+
 /**
  * Replaces an entity's path with a route to (tx, ty). Air units fly straight; ground units use
- * A* over terrain and structures, smoothed into straight segments.
+ * A* over terrain and structures, smoothed into straight segments. A destination the unit cannot
+ * reach (blocked, or cut off from it) is replaced by the nearest tile it can reach, so a failed
+ * search never has to exhaust the map.
  */
 export function requestPath(world: World, entity: Entity, tx: number, ty: number): void {
   entity.lastPathTick = world.tick;
@@ -19,12 +27,27 @@ export function requestPath(world: World, entity: Entity, tx: number, ty: number
     return;
   }
   const from = { x: Math.floor(entity.x), y: Math.floor(entity.y) };
-  const goal = { x: Math.floor(x), y: Math.floor(y) };
-  const result = findPath(world, from, goal);
+  const requested = { x: Math.floor(x), y: Math.floor(y) };
+  const reachable = reachableGoal(world, from, requested);
+  const goal = reachable ?? requested;
+  const result = findPath(world, from, goal, reachable ? {} : { maxExpanded: FALLBACK_SEARCH_BUDGET });
   const waypoints = smoothPath(world, result.path).map((p) => ({ x: p.x + 0.5, y: p.y + 0.5 }));
-  if (result.reachedGoal) waypoints[waypoints.length - 1] = { x, y };
+  // Only a path that ends on the requested tile may finish at the exact requested point.
+  const arrivesAtRequest = result.reachedGoal && goal.x === requested.x && goal.y === requested.y;
+  if (arrivesAtRequest) waypoints[waypoints.length - 1] = { x, y };
   if (waypoints.length > 1 && distance(entity, waypoints[0]!) < 0.3) waypoints.shift();
   entity.path = waypoints;
+}
+
+/**
+ * The tile to path to: the requested one when it shares the unit's region, otherwise the nearest
+ * tile of that region. Null when the unit stands on a blocked tile or nothing reachable is near.
+ */
+function reachableGoal(world: World, from: TilePoint, requested: TilePoint): TilePoint | null {
+  const region = world.regionAt(from.x, from.y);
+  if (region === 0) return null;
+  if (world.regionAt(requested.x, requested.y) === region) return requested;
+  return nearestTileInRegion(world, region, requested, from, RETARGET_RADIUS);
 }
 
 /** Advances an entity along its path. Returns true when the path is complete. */

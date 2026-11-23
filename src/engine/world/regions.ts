@@ -1,47 +1,20 @@
 import type { Point } from '../sim/types';
+import { RegionMap } from './connectivity';
 import type { Terrain } from './terrain';
 
 /** Mask of the largest connected walkable region: the planet's main landmass. */
 export function largestRegionMask(terrain: Terrain): Uint8Array {
-  const labels = new Int32Array(terrain.width * terrain.height);
-  let bestLabel = 0;
-  let bestSize = 0;
-  let label = 0;
-  for (let i = 0; i < labels.length; i++) {
-    if (labels[i] || !terrain.isWalkable(i % terrain.width, Math.floor(i / terrain.width))) continue;
-    label++;
-    const size = floodLabel(terrain, labels, i, label);
-    if (size > bestSize) {
-      bestSize = size;
-      bestLabel = label;
-    }
+  const regions = new RegionMap(terrain);
+  let best = 0;
+  for (let label = 1; label <= regions.count; label++) {
+    if (regions.sizeOf(label) > regions.sizeOf(best)) best = label;
   }
-  return Uint8Array.from(labels, (l) => (l === bestLabel && l !== 0 ? 1 : 0));
-}
-
-function floodLabel(terrain: Terrain, labels: Int32Array, start: number, label: number): number {
-  const { width, height } = terrain;
-  const stack = [start];
-  labels[start] = label;
-  let size = 0;
-  while (stack.length > 0) {
-    const i = stack.pop()!;
-    size++;
-    const x = i % width;
-    const y = Math.floor(i / width);
-    for (const [nx, ny] of [
-      [x + 1, y],
-      [x - 1, y],
-      [x, y + 1],
-      [x, y - 1],
-    ] as const) {
-      const ni = ny * width + nx;
-      if (nx < 0 || ny < 0 || nx >= width || ny >= height || labels[ni] || !terrain.isWalkable(nx, ny)) continue;
-      labels[ni] = label;
-      stack.push(ni);
-    }
+  const mask = new Uint8Array(terrain.width * terrain.height);
+  if (best === 0) return mask;
+  for (let i = 0; i < mask.length; i++) {
+    if (regions.labelAt(i % terrain.width, Math.floor(i / terrain.width)) === best) mask[i] = 1;
   }
-  return size;
+  return mask;
 }
 
 /** Iterates tiles in square rings of increasing radius around a centre. */

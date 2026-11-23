@@ -50,3 +50,18 @@ describe('BrowserSaveStore', () => {
     expect(new BrowserSaveStore(storage).save(GameSession.create(3).toSavedGame())).toBe(false);
   });
 });
+
+describe('BrowserSaveStore with failing storage', () => {
+  it('treats unreadable storage as having no saved game and ignores failed removals', () => {
+    const storage = new MemoryStorage();
+    storage.getItem = () => {
+      throw new Error('SecurityError');
+    };
+    storage.removeItem = () => {
+      throw new Error('SecurityError');
+    };
+    const store = new BrowserSaveStore(storage);
+    expect(store.load()).toBeNull();
+    expect(() => store.clear()).not.toThrow();
+  });
+});

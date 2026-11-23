@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand } from '../../src/engine/sim/commands';
 import { restoreWorld, snapshotWorld } from '../../src/engine/sim/snapshot';
 import { Simulation } from '../../src/engine/sim/simulation';
-import { createTestSim, runSeconds, testRuleset } from './fixtures';
+import { createTestSim, observe, runSeconds, testRuleset } from './fixtures';
 import type { WalkabilityGrid } from '../../src/engine/world/pathfinding';
 
 function battle(): Simulation {
@@ -11,7 +11,8 @@ function battle(): Simulation {
   const blue = [0, 1, 2, 3].map((i) => sim.world.spawn('soldier', 1, 8.5, 4.5 + i).id);
   [0, 1, 2].forEach((i) => sim.world.spawn('soldier', 2, 30.5, 10.5 + i));
   const harvester = sim.world.spawn('harvester', 1, 6.5, 9.5);
-  const deposit = sim.world.addDeposit({ kind: 'crystal', x: 12.5, y: 12.5, amount: 500 });
+  const deposit = sim.world.addDeposit({ kind: 'crystal', x: 11.5, y: 11.5, amount: 500 });
+  observe(sim);
   applyCommand(sim.world, { type: 'move', playerId: 1, unitIds: blue, x: 28.5, y: 11.5 });
   applyCommand(sim.world, { type: 'harvest', playerId: 1, unitIds: [harvester.id], depositId: deposit.id });
   return sim;
@@ -26,6 +27,8 @@ describe('determinism and persistence', () => {
     runSeconds(a, 30);
     runSeconds(b, 30);
     expect(JSON.stringify(snapshotWorld(a.world))).toBe(JSON.stringify(snapshotWorld(b.world)));
+    // The scenario must really exercise movement, combat and the economy to be a meaningful check.
+    expect(a.world.player(1).stockpile.crystal).toBeGreaterThan(0);
   });
 
   it('continues identically after a snapshot round trip', () => {

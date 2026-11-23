@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand } from '../../src/engine/sim/commands';
-import { createTestSim, runSeconds } from './fixtures';
+import { createTestSim, observe, runSeconds } from './fixtures';
 
 describe('harvesting', () => {
   it('gathers from a deposit and delivers cargo to the stockpile', () => {
@@ -8,6 +8,7 @@ describe('harvesting', () => {
     sim.world.spawn('hq', 1, 5.5, 5.5);
     const harvester = sim.world.spawn('harvester', 1, 8.5, 5.5);
     const deposit = sim.world.addDeposit({ kind: 'crystal', x: 14.5, y: 5.5, amount: 100 });
+    observe(sim);
     applyCommand(sim.world, { type: 'harvest', playerId: 1, unitIds: [harvester.id], depositId: deposit.id });
     runSeconds(sim, 15);
     const stock = sim.world.player(1).stockpile.crystal;
@@ -23,6 +24,7 @@ describe('harvesting', () => {
     const harvester = sim.world.spawn('harvester', 1, 8.5, 5.5);
     const first = sim.world.addDeposit({ kind: 'crystal', x: 12.5, y: 5.5, amount: 10 });
     const second = sim.world.addDeposit({ kind: 'crystal', x: 13.5, y: 7.5, amount: 100 });
+    observe(sim);
     applyCommand(sim.world, { type: 'harvest', playerId: 1, unitIds: [harvester.id], depositId: first.id });
     runSeconds(sim, 25);
     expect(sim.world.deposit(first.id)).toBeUndefined();
@@ -43,6 +45,7 @@ describe('harvesting', () => {
     sim.world.spawn('hq', 1, 5.5, 5.5);
     const salvager = sim.world.spawn('salvager', 1, 8.5, 5.5);
     const wreck = sim.world.addDeposit({ kind: 'salvage', x: 12.5, y: 5.5, amount: 10 });
+    observe(sim);
     applyCommand(sim.world, { type: 'harvest', playerId: 1, unitIds: [salvager.id], depositId: wreck.id });
     runSeconds(sim, 15);
     expect(sim.world.player(1).stockpile.salvage).toBe(10);
@@ -76,6 +79,7 @@ describe('logistics', () => {
     const harvester = sim.world.spawn('harvester', 1, 27.5, 5.5);
     const transport = sim.world.spawn('transport', 1, 23.5, 5.5);
     const deposit = sim.world.addDeposit({ kind: 'crystal', x: 29.5, y: 5.5, amount: 100 });
+    observe(sim);
     applyCommand(sim.world, { type: 'harvest', playerId: 1, unitIds: [harvester.id], depositId: deposit.id });
     applyCommand(sim.world, { type: 'haul', playerId: 1, unitIds: [transport.id], targetId: refinery.id });
     runSeconds(sim, 8);
@@ -89,6 +93,7 @@ describe('logistics', () => {
     const sim = createTestSim();
     const extractor = sim.world.spawn('extractor', 1, 8.5, 5.5);
     const vent = sim.world.addDeposit({ kind: 'energy', x: 11.5, y: 5.5, amount: 1000 });
+    observe(sim);
     applyCommand(sim.world, { type: 'extract', playerId: 1, unitIds: [extractor.id], depositId: vent.id });
     runSeconds(sim, 12);
     const energy = sim.world.player(1).stockpile.energy;

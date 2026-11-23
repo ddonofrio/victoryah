@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { Entity, PlayerId } from '../../engine/sim/types';
 import type { World } from '../../engine/sim/world';
 import type { ScreenEntity } from '../input/selection';
+import { disposeGeometries } from './dispose';
 import type { HeightField } from './heightField';
 import { LOGISTICS_BUILDERS, fallbackModel } from './logisticsModels';
 import { ModelKit, type UnitModel } from './modelKit';
@@ -61,6 +62,7 @@ export class UnitView {
     for (const [id, visual] of this.visuals) {
       if (seen.has(id)) continue;
       this.root.remove(visual.model.root, visual.ring, visual.hpBar);
+      for (const part of [visual.model.root, visual.ring, visual.hpBar]) disposeGeometries(part);
       this.visuals.delete(id);
     }
   }

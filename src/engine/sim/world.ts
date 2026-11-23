@@ -1,3 +1,4 @@
+import { RegionMap } from '../world/connectivity';
 import { SpatialGrid } from '../world/spatialGrid';
 import { VisibilityMap } from '../world/visibility';
 import type { WalkabilityGrid } from '../world/pathfinding';
@@ -23,6 +24,10 @@ export interface DepositSpec {
   readonly hidden?: boolean;
 }
 
+const SURFACE_UNKNOWN = 0;
+const SURFACE_OPEN = 1;
+const SURFACE_BLOCKED = 2;
+
 const emptyStockpile = (): Record<ResourceKind, number> =>
   Object.fromEntries(RESOURCE_KINDS.map((k) => [k, 0])) as Record<ResourceKind, number>;
 
@@ -45,6 +50,13 @@ export class World implements WalkabilityGrid {
   private readonly visibilityMaps = new Map<PlayerId, VisibilityMap>();
   private readonly index = new SpatialGrid(8);
   private readonly occupancy: Uint16Array;
+  /**
+   * Surface walkability per tile, filled on first use. The surface never changes during the life
+   * of a World, and pathfinding asks about the same tiles thousands of times per search.
+   */
+  private readonly surfaceCache: Uint8Array;
+  /** Derived from terrain and occupancy; rebuilt lazily after a structure appears or disappears. */
+  private regions: RegionMap | null = null;
   private events: SimEvent[] = [];
 
   constructor(config: WorldConfig) {
@@ -53,6 +65,7 @@ export class World implements WalkabilityGrid {
     this.width = config.surface.width;
     this.height = config.surface.height;
     this.occupancy = new Uint16Array(this.width * this.height);
+    this.surfaceCache = new Uint8Array(this.width * this.height);
     for (const p of config.players) {
       this.players.set(p.id, { id: p.id, name: p.name, stockpile: emptyStockpile() });
       this.visibilityMaps.set(p.id, new VisibilityMap(this.width, this.height));
@@ -63,7 +76,23 @@ export class World implements WalkabilityGrid {
 
   /** Terrain walkability combined with tiles blocked by structures. */
   isWalkable(x: number, y: number): boolean {
-    return this.surface.isWalkable(x, y) && this.occupancy[y * this.width + x] === 0;
+    if (x < 0 || y < 0 || x >= this.width || y >= this.height) return false;
+    const i = y * this.width + x;
+    let surface = this.surfaceCache[i]!;
+    if (surface === SURFACE_UNKNOWN) {
+      surface = this.surface.isWalkable(x, y) ? SURFACE_OPEN : SURFACE_BLOCKED;
+      this.surfaceCache[i] = surface;
+    }
+    return surface === SURFACE_OPEN && this.occupancy[i] === 0;
+  }
+
+  /**
+   * Identifier of the connected walkable area containing a tile, or 0 when the tile is blocked.
+   * Ground units can travel between two tiles exactly when both report the same non-zero region.
+   */
+  regionAt(x: number, y: number): number {
+    this.regions ??= new RegionMap(this);
+    return this.regions.labelAt(x, y);
   }
 
   // ---- entities ------------------------------------------------------------------------------
@@ -165,8 +194,13 @@ export class World implements WalkabilityGrid {
     this.deposits.delete(id);
   }
 
+  /**
+   * Whether a player may know about and act on a deposit: it lies on ground the player has
+   * explored and, if underground, one of the player's prospectors has revealed it.
+   */
   isDepositKnownTo(deposit: Deposit, playerId: PlayerId): boolean {
-    return !deposit.hidden || deposit.revealedTo.includes(playerId);
+    if (deposit.hidden && !deposit.revealedTo.includes(playerId)) return false;
+    return this.visibility(playerId).isExplored(deposit.x, deposit.y);
   }
 
   // ---- players and perception ----------------------------------------------------------------
@@ -199,8 +233,7 @@ export class World implements WalkabilityGrid {
 
   /** Deposits on explored ground, excluding underground deposits the player has not found. */
   knownDeposits(playerId: PlayerId): Deposit[] {
-    const vision = this.visibility(playerId);
-    return this.depositsList().filter((d) => vision.isExplored(d.x, d.y) && this.isDepositKnownTo(d, playerId));
+    return this.depositsList().filter((d) => this.isDepositKnownTo(d, playerId));
   }
 
   // ---- events --------------------------------------------------------------------------------
@@ -218,6 +251,7 @@ export class World implements WalkabilityGrid {
   private setFootprint(entity: Entity, delta: 1 | -1): void {
     const footprint = this.def(entity.typeId).footprint;
     if (!footprint) return;
+    this.regions = null;
     const half = Math.floor(footprint / 2);
     const cx = Math.floor(entity.x);
     const cy = Math.floor(entity.y);

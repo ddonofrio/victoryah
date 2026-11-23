@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand } from '../../src/engine/sim/commands';
-import { createTestSim, runSeconds } from './fixtures';
+import { createTestSim, observe, runSeconds } from './fixtures';
 
 describe('construction', () => {
   it('spends resources and builds a turret over time', () => {
@@ -8,6 +8,7 @@ describe('construction', () => {
     const engineer = sim.world.spawn('engineer', 1, 5.5, 5.5);
     sim.world.player(1).stockpile.crystal = 60;
     sim.world.player(1).stockpile.ore = 20;
+    observe(sim);
     const result = applyCommand(sim.world, {
       type: 'build',
       playerId: 1,
@@ -33,14 +34,18 @@ describe('construction', () => {
     const engineer = sim.world.spawn('engineer', 1, 5.5, 5.5);
     const build = (x: number, structureType = 'turret') =>
       applyCommand(sim.world, { type: 'build', playerId: 1, unitIds: [engineer.id], structureType, x, y: 5.5 });
+    observe(sim);
     expect(build(10.5).rejected).toEqual([{ id: engineer.id, reason: 'insufficient-resources' }]);
     sim.world.player(1).stockpile.crystal = 500;
     sim.world.player(1).stockpile.ore = 500;
     sim.world.spawn('soldier', 1, 12.5, 5.5);
+    observe(sim);
     expect(build(12.5).rejected).toEqual([{ id: engineer.id, reason: 'blocked' }]);
     expect(build(10.5, 'hq').rejected).toEqual([{ id: engineer.id, reason: 'unsupported' }]);
   });
+});
 
+describe('structures under construction', () => {
   it('does not let a turret fire before it is completed', () => {
     const sim = createTestSim();
     const turret = sim.world.spawn('turret', 1, 5.5, 5.5, { built: 0.5 });

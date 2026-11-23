@@ -8,6 +8,7 @@ import { TILE_COLORS } from './palette';
 interface ChunkView {
   readonly group: THREE.Group;
   readonly ground: THREE.Mesh;
+  readonly rocks: THREE.InstancedMesh | null;
 }
 
 /**
@@ -62,7 +63,7 @@ export class TerrainView {
     const rocks = this.buildRocks(cx, cy);
     if (rocks) group.add(rocks);
     this.root.add(group);
-    this.chunks.set(key, { group, ground });
+    this.chunks.set(key, { group, ground, rocks });
   }
 
   private releaseChunk(key: string): void {
@@ -70,6 +71,8 @@ export class TerrainView {
     if (!chunk) return;
     this.root.remove(chunk.group);
     chunk.ground.geometry.dispose();
+    // Rocks share one geometry across chunks; only the per-chunk instance data is released.
+    chunk.rocks?.dispose();
     this.chunks.delete(key);
   }
 

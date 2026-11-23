@@ -21,11 +21,11 @@ export class BrowserSaveStore implements SaveStore {
   constructor(private readonly storage: KeyValueStorage) {}
 
   load(): SavedGame | null {
-    const raw = this.storage.getItem(BrowserSaveStore.KEY);
-    if (!raw) return null;
     try {
-      const parsed = JSON.parse(raw) as Partial<SavedGame>;
-      return parsed.version === SAVED_GAME_VERSION ? (parsed as SavedGame) : null;
+      const raw = this.storage.getItem(BrowserSaveStore.KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<SavedGame> | null;
+      return parsed?.version === SAVED_GAME_VERSION ? (parsed as SavedGame) : null;
     } catch {
       return null;
     }
@@ -41,6 +41,39 @@ export class BrowserSaveStore implements SaveStore {
   }
 
   clear(): void {
-    this.storage.removeItem(BrowserSaveStore.KEY);
+    try {
+      this.storage.removeItem(BrowserSaveStore.KEY);
+    } catch {
+      // Storage that cannot be written holds nothing worth removing.
+    }
+  }
+}
+
+/** Volatile storage for browsers that deny access to persistent storage: the game runs, unsaved. */
+export class MemoryStorage implements KeyValueStorage {
+  private readonly items = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.items.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.items.set(key, value);
+  }
+
+  removeItem(key: string): void {
+    this.items.delete(key);
+  }
+}
+
+/**
+ * Obtains the browser storage, which some privacy settings refuse with an exception on access,
+ * and falls back to in-memory storage so the game still starts.
+ */
+export function resolveStorage(access: () => KeyValueStorage): KeyValueStorage {
+  try {
+    return access();
+  } catch {
+    return new MemoryStorage();
   }
 }

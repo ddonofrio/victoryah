@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand } from '../../src/engine/sim/commands';
-import { createTestSim, runSeconds } from './fixtures';
+import { createTestSim, observe, runSeconds } from './fixtures';
 
 describe('command validation', () => {
   it("rejects orders for another player's units", () => {
@@ -17,6 +17,7 @@ describe('command validation', () => {
     const soldier = sim.world.spawn('soldier', 1, 5.5, 5.5);
     const harvester = sim.world.spawn('harvester', 1, 6.5, 5.5);
     const deposit = sim.world.addDeposit({ kind: 'crystal', x: 10.5, y: 5.5, amount: 100 });
+    observe(sim);
     const result = applyCommand(sim.world, {
       type: 'harvest',
       playerId: 1,
@@ -63,6 +64,7 @@ describe('smart (context-sensitive) commands', () => {
     const soldier = sim.world.spawn('soldier', 1, 5.5, 5.5);
     const harvester = sim.world.spawn('harvester', 1, 6.5, 5.5);
     const deposit = sim.world.addDeposit({ kind: 'crystal', x: 12.5, y: 5.5, amount: 100 });
+    observe(sim);
     applyCommand(sim.world, {
       type: 'smart',
       playerId: 1,
@@ -101,5 +103,44 @@ describe('smart (context-sensitive) commands', () => {
       target: { x: 8.5, y: 5.5, entityId: tank.id },
     });
     expect(engineer.order).toEqual({ type: 'repair', targetId: tank.id });
+  });
+});
+
+describe('commands cannot act on territory the player has not explored', () => {
+  it('rejects construction on unexplored ground', () => {
+    const sim = createTestSim();
+    const engineer = sim.world.spawn('engineer', 1, 5.5, 5.5);
+    Object.assign(sim.world.player(1).stockpile, { crystal: 500, ore: 500 });
+    sim.step();
+    const build = (x: number) =>
+      applyCommand(sim.world, {
+        type: 'build',
+        playerId: 1,
+        unitIds: [engineer.id],
+        structureType: 'turret',
+        x,
+        y: 5.5,
+      });
+    expect(build(40.5).rejected).toEqual([{ id: engineer.id, reason: 'invalid-target' }]);
+    expect(sim.world.player(1).stockpile.crystal).toBe(500);
+    expect(build(9.5).accepted).toEqual([engineer.id]);
+  });
+
+  it('rejects harvesting and extracting deposits on unexplored ground', () => {
+    const sim = createTestSim();
+    const harvester = sim.world.spawn('harvester', 1, 5.5, 5.5);
+    const extractor = sim.world.spawn('extractor', 1, 6.5, 5.5);
+    const farCrystal = sim.world.addDeposit({ kind: 'crystal', x: 40.5, y: 40.5, amount: 100 });
+    const farVent = sim.world.addDeposit({ kind: 'energy', x: 41.5, y: 40.5, amount: 100 });
+    const nearCrystal = sim.world.addDeposit({ kind: 'crystal', x: 8.5, y: 5.5, amount: 100 });
+    sim.step();
+    const harvest = (depositId: number) =>
+      applyCommand(sim.world, { type: 'harvest', playerId: 1, unitIds: [harvester.id], depositId });
+    expect(harvest(farCrystal.id).rejected).toEqual([{ id: harvester.id, reason: 'invalid-target' }]);
+    expect(harvest(nearCrystal.id).accepted).toEqual([harvester.id]);
+    expect(
+      applyCommand(sim.world, { type: 'extract', playerId: 1, unitIds: [extractor.id], depositId: farVent.id })
+        .rejected,
+    ).toEqual([{ id: extractor.id, reason: 'invalid-target' }]);
   });
 });

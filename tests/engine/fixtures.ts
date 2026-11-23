@@ -1,5 +1,6 @@
 import { createRuleset, type UnitTypeDefinition } from '../../src/engine/sim/definitions';
 import { Simulation } from '../../src/engine/sim/simulation';
+import { updatePerception } from '../../src/engine/sim/systems/perception';
 import { World } from '../../src/engine/sim/world';
 import type { WalkabilityGrid } from '../../src/engine/world/pathfinding';
 
@@ -234,4 +235,12 @@ export function createTestSim(surface: WalkabilityGrid = openGrid()): Simulation
 export function runSeconds(sim: Simulation, seconds: number): void {
   const ticks = Math.round(seconds * Simulation.TICK_RATE);
   for (let i = 0; i < ticks; i++) sim.step();
+}
+
+/**
+ * Refreshes every player's vision after units were placed by hand, as the next simulation step
+ * would. Commands are validated against what the player has explored.
+ */
+export function observe(sim: Simulation): void {
+  updatePerception(sim.world);
 }

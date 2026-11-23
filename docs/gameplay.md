@@ -39,6 +39,8 @@ A right click lets each unit do the most useful thing it can with the target, an
 - known resource deposit → compatible gatherers harvest it, energy extractors deploy on energy vents;
 - open ground → move, spread over distinct destinations around the point.
 
+An order toward a place ground units cannot reach (a mountain, a structure, ground cut off from them) sends them to the nearest point they can reach.
+
 ## Units and structures
 
 ### Military

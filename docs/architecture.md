@@ -10,12 +10,12 @@ Current scope: **MVP 1, the planetary RTS layer**, played locally in the browser
 src/
   engine/      Pure rules and algorithms. No DOM, no rendering, no content.
     core/        Seeded hashing, RNG, value noise
-    world/       Terrain generation, pathfinding, spatial index, visibility, regions, resource fields
+    world/       Terrain generation, pathfinding, connectivity regions, spatial index, visibility, resource fields
     sim/         World state, Simulation loop, commands, capabilities, snapshots
       systems/   Per-tick behaviour: movement, combat, economy, construction, perception, orders
   content/     Data: unit roster, resource field tables, skirmish forces
   instances/   World instance setup: composes engine + content into a playable planet (skirmish)
-  app/         Application services: GameSession (time, commands, save format), SaveStore port
+  app/         Application services: GameSession (time, commands, save format), session opening, SaveStore port
   client/      Browser presentation: Three.js rendering, input, HUD, audio
   main.ts      SPA bootstrap
 ```
@@ -48,7 +48,7 @@ Units and structures are one `Entity` type (`engine/sim/types.ts`) of plain, ser
 
 ### Commands
 
-Players act only through `Command`s (`engine/sim/commands.ts`): `move`, `stop`, `attack`, `harvest`, `build`, `repair`, `extract`, `haul` and `smart` (context-sensitive right click, resolved per unit in `engine/sim/smart.ts`). Commands are treated as **untrusted input**: every command checks unit existence, ownership, capability, completion, target validity and visibility, costs and placement, and reports each rejected unit with a reason. `Simulation.submit()` queues commands for the next step, the same model a server would use for network commands.
+Players act only through `Command`s (`engine/sim/commands.ts`): `move`, `stop`, `attack`, `harvest`, `build`, `repair`, `extract`, `haul` and `smart` (context-sensitive right click, resolved per unit in `engine/sim/smart.ts`). Commands are treated as **untrusted input**: every command checks unit existence, ownership, capability, completion, target validity and visibility, costs and placement, and reports each rejected unit with a reason. A player can only act on what that player knows: enemies must be in sight to be attacked, deposits must lie on explored ground (and be revealed, if underground) to be harvested or tapped, and structures can only be placed on explored ground. These checks live in the engine, not only in the client, so they also hold for a future networked client. `Simulation.submit()` queues commands for the next step, the same model a server would use for network commands.
 
 ### Systems
 
@@ -71,7 +71,9 @@ Events (`SimEvent`: shots, destructions, deliveries, completed structures, revea
 
 ### Pathfinding and spatial queries
 
-- Eight-way A* with octile heuristic, no corner cutting, a node budget, and graceful fallback to the closest reachable tile; results are smoothed with tile line-of-sight. Structures block tiles through the World's occupancy grid.
+- Eight-way A* with octile heuristic, no corner cutting, a node budget, and graceful fallback to the closest reachable tile; results are smoothed with tile line-of-sight. Structures block tiles through the World's occupancy grid. Search bookkeeping uses flat typed arrays indexed by tile.
+- **Reachability is answered before searching.** `RegionMap` (`engine/world/connectivity.ts`) labels the connected walkable areas of the World (terrain plus structures); `World.regionAt()` keeps it current, rebuilding lazily after a structure appears or disappears. A path request whose destination is blocked or cut off (a structure's own tile, a mountain, a sealed pocket) is retargeted to the nearest tile of the unit's region, so A* is only ever asked for goals it can reach. Without this, every such request explored the whole landmass; see the [decision note](notes/implemented/architecture/2026-11-23-reachability-regions.md).
+- `World.isWalkable()` memoises surface walkability per tile, because the surface is immutable for the life of a World and searches ask about the same tiles repeatedly. Terrain chunks are still generated lazily, on first query.
 - Air units fly straight lines.
 - Group moves assign distinct destination tiles around the clicked point (`formation.ts`).
 - `SpatialGrid` (8-tile cells) answers radius queries for targeting, separation and placement; results are sorted by id for determinism.
@@ -84,14 +86,15 @@ Each player has a `VisibilityMap` with three states per tile: unexplored, explor
 
 - `snapshotWorld()` / `restoreWorld()` (`engine/sim/snapshot.ts`) produce a versioned (`schemaVersion: 1`), JSON-safe snapshot of entities, deposits, stockpiles and run-length-encoded explored masks. Terrain is not stored: it is regenerated from the seed.
 - `GameSession.toSavedGame()` wraps it with the scenario, seed, map size and local player (`SAVED_GAME_VERSION = 1`).
-- `SaveStore` is the persistence port; `BrowserSaveStore` implements it with `localStorage`. The client autosaves every 15 s, when the tab is hidden and before unload. Unknown versions and corrupt data are ignored rather than crashing.
+- `SaveStore` is the persistence port; `BrowserSaveStore` implements it with `localStorage`. The client autosaves every 15 s, when the tab is hidden and before unload.
+- `openSession()` (`app/sessionLoader.ts`) decides what to load at start-up. Unparseable data and unknown versions count as no saved game. A saved game that parses but cannot be restored (for example one written by a build with different unit definitions) is removed and replaced by a new game on the same planet, with a notice to the player; a bad save can therefore never prevent the game from starting. If the browser denies access to `localStorage`, the game runs on volatile in-memory storage.
 - A restored game continues exactly as an uninterrupted one (tested).
 
 ## Application and client
 
 - `GameSession` (`app/gameSession.ts`) drives the simulation from real time with an accumulator: as many fixed steps as elapsed time allows, capped at 0.25 s per frame to avoid a spiral of death after pauses. It exposes `alpha` (fraction of the next tick) for interpolation and stamps local commands with the player id.
 - `GameClient` (`client/gameClient.ts`) owns the animation-frame loop: input → `session.advance(dt)` → sync visuals after steps → present events → render → periodic HUD, minimap and autosave updates.
-- Rendering (`client/render`): streamed terrain chunk meshes with a fog-of-war `DataTexture` patched into the materials; procedural low-poly models; units interpolated between ticks; effects, markers and placement preview.
+- Rendering (`client/render`): streamed terrain chunk meshes with a fog-of-war `DataTexture` patched into the materials; procedural low-poly models; units interpolated between ticks; effects, markers and placement preview. Views release the GPU resources they own when a chunk scrolls away, a unit leaves the perceived world or an effect ends; materials and the geometries shared between objects are kept.
 - Input (`client/input`, `client/commandController.ts`): screen-space picking and box selection, control groups, targeted actions and context orders, all turned into `LocalCommand`s.
 - HUD (`client/ui`): resource bar, selection details, capability-driven command panel, minimap.
 - Audio (`client/audio/soundBoard.ts`): sounds synthesised with WebAudio, rate-limited, unlocked by the first user gesture.
@@ -111,18 +114,23 @@ What is deliberately not built yet: networking, authentication, a server process
 
 Measured on Node.js 22 in the development container (single core, no GPU), seed 9:
 
-| Operation                                          | Time      |
-| -------------------------------------------------- | --------- |
-| Generate all 256 × 256 tiles                       | ≈ 70 ms   |
-| Largest-region analysis                            | ≈ 32 ms   |
-| Full skirmish creation (47 entities, 318 deposits) | ≈ 100 ms  |
-| One simulation tick                                | ≈ 0.56 ms |
+| Operation                                                    | Time     |
+| ------------------------------------------------------------ | -------- |
+| Generate all 256 × 256 tiles                                 | ≈ 50 ms  |
+| Largest-region analysis                                      | ≈ 5 ms   |
+| Full skirmish creation (47 entities, 318 deposits)           | ≈ 55 ms  |
+| One simulation tick, two harvesters working (average)        | ≈ 0.4 ms |
+| Same, slowest tick over three minutes                        | ≈ 1.3 ms |
+| Rebuild the connectivity regions after a structure change    | ≈ 2 ms   |
+| Move order onto a blocked tile (a structure), one unit       | ≈ 1.7 ms |
+| Move order across the whole map, 25 units (25 path searches) | ≈ 43 ms  |
 
-The tick budget at 20 Hz is 50 ms, so the current scale leaves two orders of magnitude of headroom. Assumptions and first optimisation candidates when unit counts grow:
+The tick budget at 20 Hz is 50 ms, so the current scale leaves two orders of magnitude of headroom. Before destinations were checked for reachability, a path request toward a blocked tile took 80–110 ms, which made every harvester delivery and every attack on a structure a visible stutter; that is the measurement behind the connectivity regions. Assumptions and first optimisation candidates when unit counts grow:
 
 - **Perception** is recomputed every tick for every player: O(units × sight²) plus a copy of the visible mask per player. Candidates: staggered updates, incremental reveal deltas, or per-chunk masks.
 - `knownDeposits`, `perceivedEntities` and drop-off searches scan linearly; deposits could join a spatial index.
-- A* is bounded by a 40 000-node budget per request; re-pathing while chasing is throttled to once per second.
+- A* is bounded by a 40 000-node budget per request; re-pathing while chasing is throttled to once per second. Each unit of a group order runs its own search in the same tick, so a long-distance order for a large group is the most expensive single event left. Candidates: one shared search per group, or a per-tick budget of queued path requests.
+- The connectivity regions, the walkability cache and the A* arrays cover the whole surface (one entry per tile). That is right for 256 × 256; planet-sized maps need them per chunk or hierarchical.
 - Rendering streams 32 × 32 terrain chunks within about 2.2 × camera distance + 30 tiles and releases distant ones; Three.js frustum culling skips off-screen objects. The production bundle is about 83 kB of game code (28 kB gzipped) plus 479 kB for Three.js in its own cacheable chunk.
 
 Measure before optimising; record new measurements here.
@@ -130,13 +138,14 @@ Measure before optimising; record new measurements here.
 ## Known limitations
 
 - Vision ignores terrain occlusion; units do not block each other's paths (soft separation only).
-- No attack-move; enemy units have no strategic AI and only engage what comes into range.
+- Path smoothing validates straight segments between tile centres, but a unit starts and ends a path up to half a tile off-centre, so it can briefly clip the corner of a blocked tile.
+- No attack-move; enemy units have no strategic AI and only engage what comes into range. Idle units do not advance on enemies outside their weapon range and do not react to being shelled from beyond it.
 - The client caps one frame at 0.1 s, so below 10 frames per second game time runs slower than real time.
 - Single local player; persistence is browser-local.
 
 ## Manual verification
 
-Automated E2E smoke tests (`npm run test:e2e`) cover launch, selection, command derivation, movement orders, save/restore and the help overlay. For UI changes, also check by hand with `npm run dev`:
+Automated E2E smoke tests (`npm run test:e2e`) cover launch, selection, command derivation, movement orders, save/restore, recovery from an unusable saved game and the help overlay. For UI changes, also check by hand with `npm run dev`:
 
 1. The planet loads with the seed in the top bar and URL; reloading the same URL shows the same planet and the saved positions.
 2. Click, Shift-click, double click and box selection behave as described in the gameplay guide; selection rings and health bars appear.

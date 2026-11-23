@@ -1,29 +1,22 @@
 import './client/styles.css';
-import { GameSession } from './app/gameSession';
-import { BrowserSaveStore } from './app/saveStore';
+import { BrowserSaveStore, resolveStorage } from './app/saveStore';
+import { openSession, parseSeed } from './app/sessionLoader';
 import { GameClient } from './client/gameClient';
 
 /**
- * SPA entry point. Resolves which planet to load: an explicit `?seed=` wins (restoring the saved
- * game when it belongs to that seed), otherwise the saved game, otherwise a new random planet.
+ * SPA entry point. Which planet to load is decided by `openSession`: an explicit `?seed=` wins
+ * (restoring the saved game when it belongs to that seed), otherwise the saved game, otherwise a
+ * new random planet.
  */
 function bootstrap(): void {
-  const store = new BrowserSaveStore(window.localStorage);
+  const store = new BrowserSaveStore(resolveStorage(() => window.localStorage));
+  const { session, discardedSave } = openSession(store, parseSeed(window.location.search), randomSeed);
   const params = new URLSearchParams(window.location.search);
-  const requested = params.has('seed') ? Number.parseInt(params.get('seed')!, 10) : Number.NaN;
-  const saved = store.load();
-  let session: GameSession;
-  if (Number.isFinite(requested)) {
-    session = saved && saved.seed === requested ? GameSession.restore(saved) : GameSession.create(requested);
-  } else if (saved) {
-    session = GameSession.restore(saved);
-  } else {
-    session = GameSession.create(randomSeed());
-  }
   params.set('seed', String(session.seed));
   window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
   const client = new GameClient(document, session, store, () => newPlanet(store));
   client.start();
+  if (discardedSave) client.notify('The saved game could not be restored. Started this planet afresh.', 6);
 }
 
 function newPlanet(store: BrowserSaveStore): void {

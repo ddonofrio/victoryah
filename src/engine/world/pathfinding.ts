@@ -40,9 +40,12 @@ function octile(ax: number, ay: number, bx: number, by: number): number {
   return Math.max(dx, dy) + (SQRT2 - 1) * Math.min(dx, dy);
 }
 
+/** Per-search bookkeeping in flat arrays indexed by tile (y * width + x), far cheaper than hash maps. */
 interface SearchState {
-  readonly gScore: Map<number, number>;
-  readonly cameFrom: Map<number, number>;
+  readonly gScore: Float64Array;
+  /** Previous tile on the best known route, or -1. */
+  readonly cameFrom: Int32Array;
+  readonly closed: Uint8Array;
   bestNode: number;
   bestHeuristic: number;
 }
@@ -54,26 +57,28 @@ interface SearchState {
  */
 export function findPath(grid: WalkabilityGrid, from: TilePoint, to: TilePoint, options: PathOptions = {}): PathResult {
   const width = grid.width;
-  const key = (x: number, y: number): number => y * width + x;
-  const start = key(from.x, from.y);
-  const goal = key(to.x, to.y);
+  const size = width * grid.height;
+  const start = from.y * width + from.x;
+  const goal = to.y * width + to.x;
   const state: SearchState = {
-    gScore: new Map([[start, 0]]),
-    cameFrom: new Map(),
+    gScore: new Float64Array(size).fill(Infinity),
+    cameFrom: new Int32Array(size).fill(-1),
+    closed: new Uint8Array(size),
     bestNode: start,
     bestHeuristic: octile(from.x, from.y, to.x, to.y),
   };
+  state.gScore[start] = 0;
   const open = new BinaryHeap<number>();
   open.push(start, state.bestHeuristic);
-  const closed = new Set<number>();
   const maxExpanded = options.maxExpanded ?? 40_000;
 
-  while (open.size > 0 && closed.size < maxExpanded) {
+  for (let expanded = 0; open.size > 0 && expanded < maxExpanded;) {
     const current = open.pop()!;
     if (current === goal) return { path: reconstruct(state.cameFrom, current, width), reachedGoal: true };
-    if (closed.has(current)) continue;
-    closed.add(current);
-    expand(grid, current, to, state, open, closed);
+    if (state.closed[current]) continue;
+    state.closed[current] = 1;
+    expanded++;
+    expand(grid, current, to, state, open);
   }
   return { path: reconstruct(state.cameFrom, state.bestNode, width), reachedGoal: state.bestNode === goal };
 }
@@ -84,23 +89,22 @@ function expand(
   to: TilePoint,
   state: SearchState,
   open: BinaryHeap<number>,
-  closed: Set<number>,
 ): void {
   const width = grid.width;
   const cx = current % width;
   const cy = Math.floor(current / width);
-  const baseCost = state.gScore.get(current)!;
+  const baseCost = state.gScore[current]!;
   for (const [dx, dy, cost] of NEIGHBOURS) {
     const nx = cx + dx;
     const ny = cy + dy;
     if (!grid.isWalkable(nx, ny)) continue;
     if (dx !== 0 && dy !== 0 && (!grid.isWalkable(cx + dx, cy) || !grid.isWalkable(cx, cy + dy))) continue;
     const neighbour = ny * width + nx;
-    if (closed.has(neighbour)) continue;
+    if (state.closed[neighbour]) continue;
     const tentative = baseCost + cost;
-    if (tentative >= (state.gScore.get(neighbour) ?? Infinity)) continue;
-    state.gScore.set(neighbour, tentative);
-    state.cameFrom.set(neighbour, current);
+    if (tentative >= state.gScore[neighbour]!) continue;
+    state.gScore[neighbour] = tentative;
+    state.cameFrom[neighbour] = current;
     const h = octile(nx, ny, to.x, to.y);
     if (h < state.bestHeuristic) {
       state.bestHeuristic = h;
@@ -110,12 +114,10 @@ function expand(
   }
 }
 
-function reconstruct(cameFrom: Map<number, number>, end: number, width: number): TilePoint[] {
+function reconstruct(cameFrom: Int32Array, end: number, width: number): TilePoint[] {
   const path: TilePoint[] = [];
-  let node: number | undefined = end;
-  while (node !== undefined) {
+  for (let node = end; node >= 0; node = cameFrom[node] ?? -1) {
     path.push({ x: node % width, y: Math.floor(node / width) });
-    node = cameFrom.get(node);
   }
   return path.reverse();
 }

@@ -1,11 +1,15 @@
 import * as THREE from 'three';
 import type { HeightField } from './heightField';
 
+/** A GPU-backed resource owned by a single effect and released when the effect ends. */
+type Disposable = THREE.Material | THREE.BufferGeometry;
+
 interface Effect {
   readonly object: THREE.Object3D;
   readonly duration: number;
   age: number;
   readonly update: (t: number) => void;
+  readonly owned: readonly Disposable[];
 }
 
 const MARKER_COLORS = { move: 0x5dff8a, attack: 0xff4a3a, interact: 0xffd34a } as const;
@@ -27,6 +31,7 @@ export class EffectsView {
       effect.update(t);
       if (t < 1) return true;
       this.root.remove(effect.object);
+      for (const resource of effect.owned) resource.dispose();
       return false;
     });
   }
@@ -35,7 +40,7 @@ export class EffectsView {
     const material = new THREE.MeshBasicMaterial({ color: MARKER_COLORS[kind], transparent: true });
     const ring = new THREE.Mesh(this.ringGeometry, material);
     ring.position.set(x, this.heights.heightAt(x, y) + 0.08, y);
-    this.spawn(ring, 0.6, (t) => {
+    this.spawn(ring, 0.6, [material], (t) => {
       ring.scale.setScalar(1.6 - t * 1.2);
       material.opacity = 1 - t;
     });
@@ -53,7 +58,7 @@ export class EffectsView {
     const fire = new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true });
     const ball = new THREE.Mesh(this.flashGeometry, fire);
     ball.position.copy(at).setY(at.y + 0.4);
-    this.spawn(ball, 0.7, (t) => {
+    this.spawn(ball, 0.7, [fire], (t) => {
       ball.scale.setScalar(size * (0.3 + t));
       fire.opacity = 1 - t;
       fire.color.setHSL(0.08 - t * 0.08, 1, 0.6 - t * 0.4);
@@ -62,15 +67,15 @@ export class EffectsView {
 
   private tracer(from: THREE.Vector3, to: THREE.Vector3, color: number): void {
     const material = new THREE.LineBasicMaterial({ color, transparent: true });
-    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, to]), material);
-    this.spawn(line, 0.12, (t) => (material.opacity = 1 - t));
+    const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
+    this.spawn(new THREE.Line(geometry, material), 0.12, [geometry, material], (t) => (material.opacity = 1 - t));
   }
 
   private projectile(from: THREE.Vector3, to: THREE.Vector3, color: number, arc: number, duration: number): void {
     const material = new THREE.MeshBasicMaterial({ color });
     const shell = new THREE.Mesh(this.flashGeometry, material);
     shell.scale.setScalar(0.09);
-    this.spawn(shell, duration, (t) => {
+    this.spawn(shell, duration, [material], (t) => {
       shell.position.lerpVectors(from, to, t);
       shell.position.y += Math.sin(t * Math.PI) * arc;
       if (t >= 1) this.flash(to, color, 0.35, 0.2);
@@ -82,12 +87,18 @@ export class EffectsView {
     const mesh = new THREE.Mesh(this.flashGeometry, material);
     mesh.position.copy(at);
     mesh.scale.setScalar(size);
-    this.spawn(mesh, duration, (t) => (material.opacity = 1 - t));
+    this.spawn(mesh, duration, [material], (t) => (material.opacity = 1 - t));
   }
 
-  private spawn(object: THREE.Object3D, duration: number, update: (t: number) => void): void {
+  /** Starts an effect; `owned` lists the resources created for it alone (never the shared geometries). */
+  private spawn(
+    object: THREE.Object3D,
+    duration: number,
+    owned: readonly Disposable[],
+    update: (t: number) => void,
+  ): void {
     update(0);
     this.root.add(object);
-    this.effects.push({ object, duration, age: 0, update });
+    this.effects.push({ object, duration, age: 0, update, owned });
   }
 }
