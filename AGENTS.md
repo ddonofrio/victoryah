@@ -8,6 +8,7 @@ These rules apply to every agent, contributor, tool-assisted change, and subtask
 - **Test-driven development is mandatory:** For a behavioral change, first write or modify a meaningful automated test that fails for the intended reason (RED); implement the smallest change that makes it pass (GREEN); then refactor while keeping the tests green (REFACTOR).
 - **Execute the tests:** Never claim completion based only on written tests or static inspection. Run the relevant tests after every implementation cycle, and run the broader applicable checks before presenting work as complete. Record the exact commands and results.
 - **Document what changes:** Maintain the relevant user, developer, architecture, API, data-model, and operational documentation in the same change as the code. Document important decisions using the Agent Note format in `DEVELOPMENT.md`.
+- **Code quality rules are mandatory:** Prettier formatting, ESLint linting, a 500-line limit per source file, and a 50-line limit per function or method, enforced locally and in CI. Never bypass or disable quality checks. The canonical rules are in `DEVELOPMENT.md` ("Code quality rules").
 - **Make focused changes:** No unrelated refactoring, speculative infrastructure, large rewrites, hidden behavior changes, or unnecessary dependencies.
 - **Keep the application modular:** Enforce explicit boundaries among the game engine, game/world instances, content and configuration data, persistence, application services, network transport, and UI.
 - **Never add author, co-author, or AI-generated attribution** to source code, file headers, comments, docstrings, or metadata. If an author field is required, use only the user's explicitly configured identity. Never credit AI assistants, bots, software, or automated tools as creators or contributors.
@@ -19,7 +20,7 @@ These rules apply to every agent, contributor, tool-assisted change, and subtask
 3. Write a failing test, then **run it and verify the failure**. The failure must demonstrate the missing behavior, not a broken test harness.
 4. Implement the minimal production change. Run the test until green.
 5. Refactor for clarity and separation of responsibilities. Rerun relevant tests.
-6. Run the required static checks, integration tests, and applicable broader suite. For UI changes, include practical manual verification instructions; automated tests are still required.
+6. Run formatting, linting, and the required static checks, integration tests, and applicable broader suite. For UI changes, include practical manual verification instructions; automated tests are still required.
 7. Update documentation, examples, and decision notes when contracts or behavior change.
 8. Review the diff for scope, secrets, dead code, temporary artifacts, and undocumented behavior. Summarize changed files, executed checks, results, and any remaining limitations.
 
@@ -37,7 +38,7 @@ If tests cannot be executed, report the actual blocker and do not say the change
 - **Determinism:** Separate time, random number generation, and external effects from domain logic so combat, resource production, and scheduled events can be tested reproducibly.
 - **Asynchronous multiplayer:** Design operations to tolerate retries, races, disconnected clients, and out-of-order workers. Use idempotency and transactional consistency where necessary; do not add distributed infrastructure without evidence it is needed.
 
-Use SOLID as a design guide, DRY to remove *actual* duplication, and KISS to prefer understandable solutions. Apply YAGNI: avoid premature abstractions, microservices, and frameworks without a demonstrated requirement.
+Use SOLID as a design guide, DRY to remove _actual_ duplication, and KISS to prefer understandable solutions. Apply YAGNI: avoid premature abstractions, microservices, and frameworks without a demonstrated requirement.
 
 ## 4. Testing and quality gates
 
@@ -53,7 +54,7 @@ Use SOLID as a design guide, DRY to remove *actual* duplication, and KISS to pre
 - `DEVELOPMENT.md` is the authoritative contributor workflow, testing standard, architecture rules, and release process.
 - Add narrowly scoped architecture and decision records when a nontrivial design or operational decision is made. Use **Problem, Decision, Alternatives considered, Consequences** and an explicit status.
 - Keep docs factual and linked to current behavior. Never claim nonexistent commands, integrations, or features are available.
-- Describe the *why* for decisions; explain public contracts and operational steps precisely. Link canonical sources instead of duplicating large sections.
+- Describe the _why_ for decisions; explain public contracts and operational steps precisely. Link canonical sources instead of duplicating large sections.
 
 ## 6. Scratch workspace: strict isolation
 

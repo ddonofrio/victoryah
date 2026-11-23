@@ -1,6 +1,6 @@
 # Development Guide
 
-This document establishes the engineering and documentation conventions for the browser-based multiplayer space strategy game. It is intentionally stack-neutral until the implementation chooses and records its runtime, frameworks, and tools.
+This document establishes the engineering and documentation conventions for Victoryah, the browser-based multiplayer science-fiction strategy game. The selected stack is TypeScript, Vite, Three.js, Vitest, ESLint, and Prettier; the rationale is recorded in [docs/notes/implemented/architecture/2026-11-22-technology-stack.md](docs/notes/implemented/architecture/2026-11-22-technology-stack.md).
 
 ## 1. Development philosophy
 
@@ -10,30 +10,32 @@ Use SOLID pragmatically; apply DRY to proven duplication, KISS to implementation
 
 ## 2. Product scope
 
-The intended product is a persistent, browser-based, multiplayer space strategy game with:
+Victoryah is a persistent, browser-based multiplayer strategy game set in a single fictional binary star system. The complete product combines:
 
-- Planets, resource production, construction, and research.
-- Fleet creation, dispatch, travel, and asynchronous combat.
-- Colonization, alliances, and player interaction.
-- Multiple independent worlds/universes when supported.
-- Progression and scheduled events that continue while players are offline.
+- **Space strategy:** planets, moons and asteroid fields; fleets, orbital operations and asynchronous missions that continue while players are offline.
+- **Planetary real-time strategy:** landing forces, base building, resource gathering and logistics, turrets and tactical combat on shared planetary surfaces where players may not know about each other.
+- **Limited territorial awareness:** exploration, surveillance and intelligence determine what each player knows.
+- **Autonomous command:** configurable standing orders executed while players are offline.
+- Persistence, multiplayer synchronisation, alliances, research and progression.
 
-These are product directions, not a claim that they are already implemented. Define gameplay and balancing contracts through small, testable increments.
+Implemented so far: MVP 1, the planetary RTS foundation (see [docs/gameplay.md](docs/gameplay.md)). Everything else is a product direction, not a claim of existing functionality. Define gameplay and balancing contracts through small, testable increments.
 
 ## 3. Architecture boundaries
 
 Keep domain logic isolated from delivery, infrastructure, instance configuration, and content data.
 
-| Boundary | Responsibilities | Must not own |
-|---|---|---|
-| Game engine/domain | Deterministic rules, costs, production, travel and combat resolution | Database calls, HTTP handlers, browser state, deployment configuration |
-| World instances | Per-universe state, lifecycle, ruleset selection, tick/scheduler orchestration | Reimplementation of core game rules |
-| Content/data definitions | Ships, buildings, research trees, balance parameters, validation | Transport, persistence, or procedural logic |
-| Application services | Use-case orchestration, permissions, transactions, command coordination | UI rendering or duplicate domain algorithms |
-| Persistence adapters | Database access, migrations, durable event/state storage | Game balance and authoritative gameplay decisions |
-| API/transport | Authentication, validation, rate limits, request/response mapping | Direct mutation of domain state without service validation |
-| Browser client | Presentation, interaction, accessible UX, local view state | Authoritative combat, economy, or security decisions |
-| Infrastructure | Deployment, observability, worker execution, external integration | Business rules |
+| Boundary                 | Responsibilities                                                               | Must not own                                                           |
+| ------------------------ | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Game engine/domain       | Deterministic rules, costs, production, travel and combat resolution           | Database calls, HTTP handlers, browser state, deployment configuration |
+| World instances          | Per-universe state, lifecycle, ruleset selection, tick/scheduler orchestration | Reimplementation of core game rules                                    |
+| Content/data definitions | Ships, buildings, research trees, balance parameters, validation               | Transport, persistence, or procedural logic                            |
+| Application services     | Use-case orchestration, permissions, transactions, command coordination        | UI rendering or duplicate domain algorithms                            |
+| Persistence adapters     | Database access, migrations, durable event/state storage                       | Game balance and authoritative gameplay decisions                      |
+| API/transport            | Authentication, validation, rate limits, request/response mapping              | Direct mutation of domain state without service validation             |
+| Browser client           | Presentation, interaction, accessible UX, local view state                     | Authoritative combat, economy, or security decisions                   |
+| Infrastructure           | Deployment, observability, worker execution, external integration              | Business rules                                                         |
+
+The mapping of these boundaries to source directories, and the import rules ESLint enforces between them, are described in [docs/architecture.md](docs/architecture.md#layers-and-dependencies).
 
 Dependency direction: transport, persistence, and UI depend on explicit application/domain contracts, not the reverse. Use interfaces at real integration seams. Keep the domain free of global singleton state so world instances remain isolated.
 
@@ -50,7 +52,7 @@ Treat every client action as untrusted. Validate ownership, permissions, costs, 
 For each behavior change:
 
 1. **Specify:** State an observable requirement and the expected outcome. Decide whether a unit, integration, or end-to-end test best proves it.
-2. **RED:** Add the smallest meaningful test and execute it. Verify that it fails *because the functionality is absent*.
+2. **RED:** Add the smallest meaningful test and execute it. Verify that it fails _because the functionality is absent_.
 3. **GREEN:** Make the minimum code change required to pass. Execute the focused test.
 4. **REFACTOR:** Improve naming, boundaries, and duplication without changing behavior. Execute the focused test again.
 5. **VERIFY:** Execute the relevant suite plus applicable lint, typecheck, build, integration, and security gates.
@@ -68,34 +70,48 @@ Repeat these steps incrementally. Fix tests that expose defects; do not bypass t
 
 Coverage percentages are diagnostic, not a substitute for relevant assertions. Define numerical thresholds only when supported by actual code and CI needs.
 
+### Code quality rules (mandatory)
+
+These rules are mandatory for all project-owned code, including tests, scripts, and configuration written in a programming language.
+
+- **Formatter and linter:** Prettier formats every supported file; ESLint (with `typescript-eslint`) lints all TypeScript and JavaScript. Both are mandatory. Configuration lives in `.prettierrc.json` and `eslint.config.js`.
+- **Automated enforcement:** `npm run format:check` and `npm run lint` are part of `npm run check` and of the CI workflow. Run `npm run format` before committing.
+- **File size:** no source code file may exceed **500 lines** (ESLint `max-lines`, blank lines and comments included).
+- **Function size:** no function or method may exceed **50 lines** (ESLint `max-lines-per-function`, blank lines and comments included). Test callbacks such as `describe` blocks count as functions.
+- **Refactor instead of growing:** split oversized files and functions into cohesive, reusable components following SOLID, DRY, and KISS. Extract helpers by responsibility, not by arbitrary line ranges.
+- **Exclusions:** generated output (`dist/`, `coverage/`) and third-party dependencies (`node_modules/`) are excluded from formatting, linting, and size limits because both tools honour `.gitignore`. No other exclusion may be added.
+- **No bypassing:** never disable, weaken, skip, or work around a quality check to make validation pass. Inline `eslint-disable` comments are rejected by configuration (`noInlineConfig`); `prettier-ignore`, raised limits, new ignore entries, or skipped CI steps are equally forbidden unless the repository owner explicitly approves a documented exception.
+
 ### Executable checks
 
-Record the actual commands for installing, testing, linting, typechecking, building, and running the project here *when the stack is chosen*. Do not invent commands before tooling exists.
+All commands run from the repository root after installing Node.js 22 LTS.
 
-| Check | Command | Status |
-|---|---|---|
-| Install dependencies | TBD | Not configured |
-| Unit tests | TBD | Not configured |
-| Integration tests | TBD | Not configured |
-| Lint/format | TBD | Not configured |
-| Typecheck/static analysis | TBD | Not configured |
-| Build | TBD | Not configured |
-| E2E/smoke | TBD | Not configured |
+| Check                                      | Command                                                                                                                               | Status                              |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| Install dependencies                       | `npm ci`                                                                                                                              | Configured                          |
+| Unit and integration tests                 | `npm run test` (watch mode: `npm run test:watch`)                                                                                     | Configured (Vitest)                 |
+| Formatting                                 | `npm run format:check` (fix: `npm run format`)                                                                                        | Configured (Prettier)               |
+| Lint, architecture boundaries, size limits | `npm run lint`                                                                                                                        | Configured (ESLint)                 |
+| Typecheck/static analysis                  | `npm run typecheck`                                                                                                                   | Configured (`tsc --noEmit`, strict) |
+| Build                                      | `npm run build`                                                                                                                       | Configured (Vite)                   |
+| All gates, as run by CI                    | `npm run check`                                                                                                                       | Configured                          |
+| Development server                         | `npm run dev`                                                                                                                         | Configured                          |
+| E2E/smoke                                  | `npm run test:e2e` (Playwright with the installed Google Chrome) and the [manual checklist](docs/architecture.md#manual-verification) | Configured                          |
 
-Until a test runner is configured, the first implementation task is to establish a minimal executable testing workflow and a passing CI path.
+CI (`.github/workflows/ci.yml`) runs formatting, typecheck, lint, tests, build, and the end-to-end smoke tests on every pull request and on pushes to `main`. A failing gate blocks the change.
 
 ## 5. Documentation system
 
-Follow the Little Whale approach: a concise entry point, a detailed contributor guide, accurate architectural references, and dated decision notes. Maintain documentation *with* code, not afterward.
+Follow the Little Whale approach: a concise entry point, a detailed contributor guide, accurate architectural references, and dated decision notes. Maintain documentation _with_ code, not afterward.
 
-| Document | Audience and ownership |
-|---|---|
-| `README.md` | Project overview, setup, user-facing status, and links |
-| `DEVELOPMENT.md` | Working rules, architecture, test workflow, quality gates, and releases |
-| `AGENTS.md` | Mandatory operational rules for coding agents |
-| Future `docs/architecture.md` | Implemented components, dependencies, invariants, and runtime flows |
-| Future `docs/notes/` | Historical technical decisions and implementation rationale |
-| Module-level README/docs | Public interfaces and module-specific contracts, as needed |
+| Document                 | Audience and ownership                                                  |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `README.md`              | Project overview, setup, user-facing status, and links                  |
+| `DEVELOPMENT.md`         | Working rules, architecture, test workflow, quality gates, and releases |
+| `AGENTS.md`              | Mandatory operational rules for coding agents                           |
+| `docs/architecture.md`   | Implemented components, dependencies, invariants, and runtime flows     |
+| `docs/notes/`            | Historical technical decisions and implementation rationale             |
+| Module-level README/docs | Public interfaces and module-specific contracts, as needed              |
 
 ### Decision notes (Agent Notes)
 
@@ -115,19 +131,23 @@ Suggested template:
 Status: proposed | implemented | superseded
 
 ## Problem
+
 What needs to change, and why?
 
 ## Decision
+
 What exact technical contract or workflow is chosen?
 
 ## Alternatives considered
+
 Which realistic options were rejected, and why?
 
 ## Consequences
+
 What improves, what becomes constrained, and what must be tested?
 ```
 
-Notes should be factual, link to relevant source and tests, and explain *why*. If a decision changes, amend its status and link to a new note rather than silently rewriting history. Do not copy whole sections between documents: link the canonical explanation.
+Notes should be factual, link to relevant source and tests, and explain _why_. If a decision changes, amend its status and link to a new note rather than silently rewriting history. Do not copy whole sections between documents: link the canonical explanation.
 
 ### Documentation acceptance criteria
 
@@ -166,6 +186,6 @@ Do not commit generated output, secrets, environment-specific state, logs, or st
 
 ## 8. Definition of done
 
-A change is complete only when its acceptance criteria are met; TDD RED/GREEN/REFACTOR steps have been followed; applicable tests and checks were actually run and passed; architecture boundaries are respected; documentation is updated; and the diff contains no unrelated edits or leaked secrets.
+A change is complete only when its acceptance criteria are met; formatting, linting, and the code quality rules pass; TDD RED/GREEN/REFACTOR steps have been followed; applicable tests and checks were actually run and passed; architecture boundaries are respected; documentation is updated; and the diff contains no unrelated edits or leaked secrets.
 
 Every delivery report must state the behavior changed, tests added, **exact checks run with results**, documentation touched, and any checks not run with a reason. Never claim success for unexecuted checks.
