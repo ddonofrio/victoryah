@@ -1,0 +1,10 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+*.log
+
+# Disposable scratch workspace (see AGENTS.md section 6)
+/.workbench/
